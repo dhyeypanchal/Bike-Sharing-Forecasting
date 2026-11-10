@@ -1,87 +1,125 @@
-"""
-ECE 9603/9063 - Data Analytics Foundations
-Assignment 1: Forecasting
-Module: evaluate.py
-Purpose: Computes evaluation metrics (MAE, RMSE, R²) and generates
-         comparative figures and tables for the final report.
-"""
-
 import os
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import seaborn as sns
+import matplotlib.dates as mdates
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
-def compute_metrics(y_true, y_pred, model_name, paradigm):
-    """
-    Computes MAE, RMSE, and R² for a model's predictions.
-    """
-    mae = mean_absolute_error(y_true, y_pred)
-    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
-    r2 = r2_score(y_true, y_pred)
-    
+# Fixed colors and line styles for each model
+STYLES = {
+    'Actual demand':     {'color': '#1a1a19', 'linestyle': '-',  'linewidth': 2.0},
+    'Seasonal naive':    {'color': '#8a8a85', 'linestyle': ':',  'linewidth': 1.6},
+    'Linear Regression': {'color': '#2a78d6', 'linestyle': '--', 'linewidth': 1.6},
+    'SVR (RBF)':         {'color': '#eb6834', 'linestyle': '-.', 'linewidth': 1.6},
+    'Random Forest':     {'color': '#1baf7a', 'linestyle': '-',  'linewidth': 1.6},
+}
+
+MARKERS = {
+    'Seasonal naive': 'x',
+    'Linear Regression': 's',
+    'SVR (RBF)': '^',
+    'Random Forest': 'o',
+}
+
+
+def _style_axes(ax):
+    """Clean up plot borders and add light grid lines."""
+    ax.spines[['top', 'right']].set_visible(False)
+    ax.spines[['left', 'bottom']].set_color('#999999')
+    ax.tick_params(colors='#444444', labelsize=9)
+    ax.grid(axis='y', color='#e5e5e2', linewidth=0.8)
+    ax.set_axisbelow(True)
+
+
+def compute_metrics(y_true, y_pred):
+    """Calculate MAE, RMSE, and R2 score."""
     return {
-        'Model / Algorithm': model_name,
-        'Model Paradigm': paradigm,
-        'MAE (Bikes)': round(mae, 2),
-        'RMSE (Bikes)': round(rmse, 2),
-        'R² Score': round(r2, 4)
+        'MAE': mean_absolute_error(y_true, y_pred),
+        'RMSE': float(np.sqrt(mean_squared_error(y_true, y_pred))),
+        'R2': r2_score(y_true, y_pred),
     }
 
-def save_comparison_table(metrics_list, output_path):
-    """
-    Exports a list of metric dictionaries to a CSV table.
-    """
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    df = pd.DataFrame(metrics_list)
-    df.to_csv(output_path, index=False)
-    return df
 
-def plot_forecast_comparison(y_test, predictions_dict, output_path, window_start=100, window_hours=72):
-    """
-    Plots ground truth against model forecasts over a continuous window.
-    """
+def plot_forecast_week(test_df, predictions, output_path, start='2012-10-01', days=7):
+    """Plot actual demand vs model predictions for one full week (Mon-Sun)."""
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    sns.set_theme(style="whitegrid", font_scale=1.1)
-    plt.figure(figsize=(13, 6))
+    start = pd.Timestamp(start)
+    mask = (test_df['timestamp'] >= start) & (test_df['timestamp'] < start + pd.Timedelta(days=days))
+    ts = test_df.loc[mask, 'timestamp']
+
+    fig, ax = plt.subplots(figsize=(11, 4.6))
+    ax.plot(ts, test_df.loc[mask, 'cnt'], label='Actual demand', **STYLES['Actual demand'])
     
-    window_end = window_start + window_hours
-    hours = np.arange(window_hours)
-    
-    # 1. Ground truth
-    plt.plot(
-        hours, 
-        y_test[window_start:window_end], 
-        label='Actual Demand (Ground Truth)', 
-        color='#111111', 
-        linewidth=2.5, 
-        marker='o', 
-        markersize=4
+    for name, y_pred in predictions.items():
+        if name in STYLES:
+            ax.plot(ts, y_pred[mask.values], label=name, **STYLES[name])
+
+    ax.xaxis.set_major_locator(mdates.DayLocator())
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%a %d %b'))
+    ax.set_ylabel('Bikes rented per hour', fontsize=10)
+    ax.set_title(
+        f'Actual vs. forecast hourly demand, test week {start:%d %b} - {start + pd.Timedelta(days=days - 1):%d %b %Y}',
+        fontsize=11, loc='left'
     )
-    
-    # Colors and styles for each model
-    styles = {
-        'Multivariate Linear Regression': {'color': '#d62728', 'linestyle': '--', 'linewidth': 2.0},
-        'Support Vector Regression (RBF)': {'color': '#1f77b4', 'linestyle': '-.', 'linewidth': 2.0},
-        'Random Forest Regressor': {'color': '#2ca02c', 'linestyle': '-', 'linewidth': 2.4}
-    }
-    
-    # 2. Model forecasts
-    for name, y_pred in predictions_dict.items():
-        style = styles.get(name, {'color': 'gray', 'linestyle': '-', 'linewidth': 1.5})
-        plt.plot(
-            hours, 
-            y_pred[window_start:window_end], 
-            label=f"{name} (Forecast)", 
-            **style
-        )
-        
-    plt.title(f"Comparative Forecasting: Actual vs. Models ({window_hours}-Hour Test Window)", 
-              fontsize=13, fontweight='bold', pad=12)
-    plt.xlabel("Consecutive Hours in Test Set", fontsize=11)
-    plt.ylabel("Hourly Bike Rental Count (cnt)", fontsize=11)
-    plt.legend(frameon=True, loc='upper right')
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=300)
-    plt.close()
+    _style_axes(ax)
+    ax.legend(ncol=5, fontsize=8.5, frameon=False, loc='upper center', bbox_to_anchor=(0.5, -0.1))
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=300)
+    plt.close(fig)
+
+
+def plot_error_by_hour(test_df, predictions, output_path):
+    """Plot average absolute error across each hour of the day."""
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    hrs = test_df['hr'].values
+    y = test_df['cnt'].values
+
+    for name, y_pred in predictions.items():
+        if name in STYLES:
+            err = pd.Series(np.abs(y - y_pred)).groupby(hrs).mean()
+            ax.plot(err.index, err.values, label=name, marker=MARKERS[name], markersize=5, **STYLES[name])
+
+    ax.set_xticks(range(0, 24))
+    ax.set_xlabel('Hour of day', fontsize=10)
+    ax.set_ylabel('Mean absolute error (bikes)', fontsize=10)
+    ax.set_title('Forecast error by hour of day (hold-out test set)', fontsize=11, loc='left')
+    _style_axes(ax)
+    ax.legend(fontsize=8.5, frameon=False, loc='upper left')
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=300)
+    plt.close(fig)
+
+
+def plot_cv_folds(cv_df, output_path):
+    """Bar chart comparing MAE of each model across CV folds."""
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    names = list(cv_df['Model'].unique())
+    folds = sorted(cv_df['Fold'].unique())
+    width = 0.8 / len(names)
+
+    fig, ax = plt.subplots(figsize=(9, 4.2))
+    for i, name in enumerate(names):
+        vals = cv_df[cv_df['Model'] == name].sort_values('Fold')['MAE'].values
+        x = np.arange(len(folds)) + (i - (len(names) - 1) / 2) * width
+        ax.bar(x, vals, width=width * 0.92, color=STYLES[name]['color'], label=name)
+
+    ax.set_xticks(np.arange(len(folds)))
+    ax.set_xticklabels([f'Fold {f}' for f in folds])
+    ax.set_ylabel('MAE (bikes)', fontsize=10)
+    ax.set_title('Mean absolute error on each time-series cross-validation fold', fontsize=11, loc='left')
+    _style_axes(ax)
+    ax.set_ylim(0, cv_df['MAE'].max() * 1.2)
+    ax.legend(fontsize=8.5, frameon=False, ncol=4, loc='upper left')
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=300)
+    plt.close(fig)
+
+
+if __name__ == "__main__":
+    y_true = np.array([50, 100, 150, 200])
+    y_pred = np.array([55, 90, 160, 195])
+    metrics = compute_metrics(y_true, y_pred)
+    print("Metrics test:", metrics)
