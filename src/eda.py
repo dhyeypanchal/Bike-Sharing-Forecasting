@@ -1,75 +1,87 @@
 import os
 import pandas as pd
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import seaborn as sns
 
-# 1. Load the dataset
-df = pd.read_csv("data/hour.csv")
+from data_loader import CONTINUOUS_COLS, FEATURE_COLS, TARGET_COL, load_data
 
-# 2. Print dataset dimensions
-print("Data shape:", df.shape)
+ATTRIBUTE_INFO = {
+    'season':     ('Categorical (nominal)', '1=winter, 2=spring, 3=summer, 4=fall'),
+    'yr':         ('Binary', '0=2011, 1=2012'),
+    'mnth':       ('Categorical (cyclical)', 'month 1-12'),
+    'hr':         ('Categorical (cyclical)', 'hour 0-23'),
+    'holiday':    ('Binary', '1 = public holiday'),
+    'weekday':    ('Categorical (cyclical)', '0=Sunday ... 6=Saturday'),
+    'workingday': ('Binary', '1 = neither weekend nor holiday'),
+    'weathersit': ('Categorical (ordinal)', '1=clear ... 4=heavy rain/snow'),
+    'temp':       ('Continuous', 'temperature in C divided by 41 (pre-normalized)'),
+    'atemp':      ('Continuous', 'feels-like temperature in C divided by 50 (pre-normalized)'),
+    'hum':        ('Continuous', 'relative humidity divided by 100 (pre-normalized)'),
+    'windspeed':  ('Continuous', 'wind speed divided by 67 (pre-normalized)'),
+    'cnt':        ('Integer count (TARGET)', 'total rentals in the hour'),
+}
 
-# 3. Check column names and missing values
-print("\nColumns:", df.columns.tolist())
-print("\nMissing values per column:\n", df.isnull().sum())
 
-# 4. Define features (X) and target (y)
-feature_cols = [
-    'season', 'yr', 'mnth', 'hr', 'holiday', 
-    'weekday', 'workingday', 'weathersit', 
-    'temp', 'atemp', 'hum', 'windspeed'
-]
-target_col = 'cnt'
+def attribute_table(df):
+    """Build summary table with types, ranges and distribution stats."""
+    rows = []
+    for col in FEATURE_COLS + [TARGET_COL]:
+        kind, meaning = ATTRIBUTE_INFO[col]
+        row = {
+            'Attribute': col,
+            'Type': kind,
+            'Meaning': meaning,
+            'Min': df[col].min(),
+            'Max': df[col].max(),
+            'Distinct values': df[col].nunique(),
+        }
+        if col in CONTINUOUS_COLS + [TARGET_COL]:
+            row.update({
+                'Mean': df[col].mean(),
+                'Std': df[col].std(),
+                'Median': df[col].median(),
+                'Q1': df[col].quantile(0.25),
+                'Q3': df[col].quantile(0.75),
+            })
+        rows.append(row)
+    return pd.DataFrame(rows)
 
-X = df[feature_cols]
-y = df[target_col]
-print(f"\nFeatures shape (X): {X.shape}")
-print(f"Target shape (y): {y.shape}")
 
-# 5. Compute summary statistics for numerical attributes & target
-results_dir = os.path.join("assignment1", "results")
-os.makedirs(results_dir, exist_ok=True)
+def plot_hourly_profile(df, output_path):
+    """Plot average hourly rental demand for working days vs weekends/holidays."""
+    profile = df.groupby(['workingday', 'hr'])['cnt'].mean().unstack(0)
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    ax.plot(profile.index, profile[1], color='#2a78d6', marker='o', markersize=5,
+            linewidth=2, label='Working day')
+    ax.plot(profile.index, profile[0], color='#eb6834', marker='s', markersize=5,
+            linewidth=2, linestyle='--', label='Weekend / holiday')
+    
+    ax.set_xticks(range(0, 24))
+    ax.set_xlabel('Hour of day', fontsize=10)
+    ax.set_ylabel('Average bikes rented per hour', fontsize=10)
+    ax.set_title('Average hourly demand, 2011-2012 (all 17,379 hours)', fontsize=11, loc='left')
+    ax.spines[['top', 'right']].set_visible(False)
+    ax.grid(axis='y', color='#e5e5e2', linewidth=0.8)
+    ax.set_axisbelow(True)
+    ax.legend(frameon=False, fontsize=9, loc='upper left')
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=300)
+    plt.close(fig)
+    return profile
 
-summary_cols = ['temp', 'atemp', 'hum', 'windspeed', 'cnt']
-stats_table = df[summary_cols].describe().T[['mean', 'std', 'min', '25%', '50%', '75%', 'max']]
-stats_table.columns = ['Mean', 'Std Dev', 'Min', 'Q1 (25%)', 'Median (50%)', 'Q3 (75%)', 'Max']
 
-print("\n=== Summary Statistics Table ===")
-print(stats_table)
+def run_eda(df, results_dir):
+    """Run full EDA, saving Table 1 and Figure 1 to results directory."""
+    os.makedirs(results_dir, exist_ok=True)
+    table = attribute_table(df)
+    table.to_csv(os.path.join(results_dir, 'table1_attribute_summary.csv'), index=False)
+    profile = plot_hourly_profile(df, os.path.join(results_dir, 'fig1_hourly_demand_profile.png'))
+    return table, profile
 
-# Save to CSV for the report table
-stats_table_path = os.path.join(results_dir, "dataset_summary_statistics.csv")
-stats_table.to_csv(stats_table_path)
-print(f"\nSaved summary table to: {stats_table_path}")
 
-# 6. Generate Figure 1: Hourly Demand Profile (Working Day vs. Weekend)
-sns.set_theme(style="whitegrid", font_scale=1.1)
-
-hourly_pattern = df.groupby(['hr', 'workingday'])['cnt'].mean().reset_index()
-hourly_pattern['Day Type'] = hourly_pattern['workingday'].map({
-    1: 'Working Day (Commute Spikes: 8 AM & 5 PM)',
-    0: 'Weekend / Holiday (Leisure Curve)'
-})
-
-plt.figure(figsize=(9, 5))
-sns.lineplot(
-    data=hourly_pattern,
-    x='hr',
-    y='cnt',
-    hue='Day Type',
-    marker='o',
-    linewidth=2.5,
-    palette=['#1f77b4', '#ff7f0e']
-)
-
-plt.title("Hourly Bike Rental Demand: Working Day vs. Weekend", fontsize=13, fontweight='bold', pad=12)
-plt.xlabel("Hour of the Day (0 to 23)", fontsize=11)
-plt.ylabel("Average Bike Rental Count (cnt)", fontsize=11)
-plt.xticks(range(0, 24))
-plt.legend(title="", frameon=True)
-plt.tight_layout()
-
-fig1_path = os.path.join(results_dir, "fig1_hourly_demand_profile.png")
-plt.savefig(fig1_path, dpi=300)
-plt.close()
-print(f"Saved Figure 1 to: {fig1_path}")
+if __name__ == '__main__':
+    df = load_data()
+    table, _ = run_eda(df, os.path.join('assignment1', 'results'))
+    print("EDA completed. Generated Table 1:")
+    print(table[['Attribute', 'Type', 'Min', 'Max']].to_string(index=False))

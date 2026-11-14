@@ -1,0 +1,5 @@
+Model,MAE mean,MAE std,RMSE mean,RMSE std,R2 mean,R2 std
+Seasonal naive,52.47,6.853,88.71,13.446,0.685,0.103
+Linear Regression,81.4,19.027,111.606,20.941,0.518,0.117
+SVR (RBF),82.248,27.461,127.917,36.618,0.338,0.385
+Random Forest,52.29,15.387,80.198,21.92,0.737,0.123
