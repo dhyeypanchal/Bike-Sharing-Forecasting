@@ -1,4 +1,0 @@
-Model / Algorithm,Model Paradigm,MAE (Bikes),RMSE (Bikes),R² Score
-Multivariate Linear Regression,Parametric / Linear Hyperplane,138.29,183.28,0.309
-Support Vector Regression (RBF),Non-Parametric / Kernel Dual Space,111.82,177.04,0.3553
-Random Forest Regressor,Non-Parametric / Tree Bagging Ensemble,45.02,69.62,0.9003
