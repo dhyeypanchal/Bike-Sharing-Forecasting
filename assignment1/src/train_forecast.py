@@ -17,6 +17,8 @@ from models import MODEL_BUILDERS, fit_predict, seasonal_naive
 warnings.filterwarnings('ignore', message='Found unknown categories')
 
 RESULTS_DIR = os.path.join('assignment1', 'results')
+if not os.path.exists('assignment1') and os.path.exists('results'):
+    RESULTS_DIR = 'results'
 N_CV_SPLITS = 5
 ALL_MODELS = ['Seasonal naive'] + list(MODEL_BUILDERS)
 

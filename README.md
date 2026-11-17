@@ -25,14 +25,14 @@ This repository contains the forecasting pipeline for Assignment 1. The goal is 
 ```text
 ├── data/
 │   └── hour.csv                     # Raw UCI Bike Sharing Dataset (17,379 hours)
-├── src/
-│   ├── data_loader.py               # Ingestion, timestamp creation, chronological 80/20 split
-│   ├── models.py                    # Pipeline definitions for all models
-│   ├── evaluate.py                  # Evaluation metrics (MAE, RMSE, R²) and visualization functions
-│   ├── eda.py                       # Exploratory Data Analysis & Table 1 / Figure 1 generation
-│   ├── inspect_dataset.py           # Initial dataset sanity checks
-│   └── train_forecast.py            # Master pipeline (hold-out + 5-fold expanding time-series CV)
 ├── assignment1/
+│   ├── src/
+│   │   ├── data_loader.py           # Ingestion, timestamp creation, chronological 80/20 split
+│   │   ├── models.py                # Pipeline definitions for all models
+│   │   ├── evaluate.py              # Evaluation metrics (MAE, RMSE, R²) and visualization functions
+│   │   ├── eda.py                   # Exploratory Data Analysis & Table 1 / Figure 1 generation
+│   │   ├── inspect_dataset.py       # Initial dataset sanity checks
+│   │   └── train_forecast.py        # Master pipeline (hold-out + 5-fold expanding time-series CV)
 │   └── results/                     # Generated tables and figures
 │       ├── table1_attribute_summary.csv
 │       ├── table2_holdout_results.csv
@@ -68,7 +68,7 @@ pip install -r requirements.txt
 ### A. Run Exploratory Data Analysis (EDA)
 Computes summary statistics across attributes and plots the average hourly demand profile:
 ```bash
-python src/eda.py
+python assignment1/src/eda.py
 ```
 Outputs saved to `assignment1/results/`:
 - `table1_attribute_summary.csv`
@@ -77,7 +77,7 @@ Outputs saved to `assignment1/results/`:
 ### B. Run the Master Forecasting Pipeline
 Executes the chronological 80/20 hold-out split, trains all models, runs 5-fold expanding-window cross-validation, and saves the comparison tables and figures:
 ```bash
-python src/train_forecast.py
+python assignment1/src/train_forecast.py
 ```
 Outputs saved to `assignment1/results/`:
 - `table2_holdout_results.csv` (hold-out performance)

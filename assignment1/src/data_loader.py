@@ -18,6 +18,11 @@ DROPPED_COLS = ['instant', 'dteday', 'casual', 'registered']
 def load_data(data_path="data/hour.csv"):
     """Load hour.csv and create a continuous timestamp from dteday and hr."""
     if not os.path.exists(data_path):
+        for candidate in [os.path.join("..", data_path), os.path.join("..", "..", data_path)]:
+            if os.path.exists(candidate):
+                data_path = candidate
+                break
+    if not os.path.exists(data_path):
         raise FileNotFoundError(f"Dataset not found at: {data_path}")
 
     df = pd.read_csv(data_path)
