@@ -16,9 +16,8 @@ from models import MODEL_BUILDERS, fit_predict, seasonal_naive
 # Suppress unknown categories warning for early CV folds
 warnings.filterwarnings('ignore', message='Found unknown categories')
 
-RESULTS_DIR = os.path.join('assignment1', 'results')
-if not os.path.exists('assignment1') and os.path.exists('results'):
-    RESULTS_DIR = 'results'
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+RESULTS_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'results'))
 N_CV_SPLITS = 5
 ALL_MODELS = ['Seasonal naive'] + list(MODEL_BUILDERS)
 

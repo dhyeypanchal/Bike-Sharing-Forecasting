@@ -3,13 +3,29 @@ import numpy as np
 import pandas as pd
 
 
-def load_raw_data(data_path="data/hour.csv"):
-    if not os.path.exists(data_path):
-        alt_path = os.path.join("..", data_path)
-        if os.path.exists(alt_path):
-            data_path = alt_path
-        else:
-            raise FileNotFoundError(f"Cannot find dataset at {data_path}")
+def find_data_path(filename="hour.csv"):
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    current = script_dir
+    for _ in range(4):
+        candidate = os.path.join(current, "data", filename)
+        if os.path.exists(candidate):
+            return os.path.abspath(candidate)
+        current = os.path.dirname(current)
+
+    for candidate in [
+        os.path.join("data", filename),
+        os.path.join("Assignments", "data", filename),
+        os.path.join("..", "data", filename),
+    ]:
+        if os.path.exists(candidate):
+            return os.path.abspath(candidate)
+
+    raise FileNotFoundError(f"Cannot find dataset file: {filename}")
+
+
+def load_raw_data(data_path=None):
+    if data_path is None or not os.path.exists(data_path):
+        data_path = find_data_path("hour.csv")
 
     df = pd.read_csv(data_path)
     df['timestamp'] = pd.to_datetime(df['dteday']) + pd.to_timedelta(df['hr'], unit='h')

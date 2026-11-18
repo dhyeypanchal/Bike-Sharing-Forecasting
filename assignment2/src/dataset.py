@@ -22,7 +22,7 @@ class BikeDemandDataset(Dataset):
         return self.X[idx], self.y[idx]
 
 
-def prepare_data(data_path="data/hour.csv", val_ratio=0.15, train_ratio=0.8):
+def prepare_data(data_path=None, val_ratio=0.15, train_ratio=0.8):
     raw_df = load_raw_data(data_path)
     df = engineer_datetime_features(raw_df)
 

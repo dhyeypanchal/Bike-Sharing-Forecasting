@@ -1,9 +1,12 @@
+import os
+import sys
 import pandas as pd
 import numpy as np
 
-# Load dataset
-data_path = "data/hour.csv"
-df = pd.read_csv(data_path)
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from data_loader import load_data
+
+df = load_data()
 
 print("=== Dataset Overview ===")
 print(f"Shape: {df.shape[0]} rows, {df.shape[1]} columns")
