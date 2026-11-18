@@ -82,9 +82,8 @@ def run_eda(df, results_dir):
 
 if __name__ == '__main__':
     df = load_data()
-    out_dir = os.path.join('assignment1', 'results')
-    if not os.path.exists('assignment1') and os.path.exists('results'):
-        out_dir = 'results'
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    out_dir = os.path.abspath(os.path.join(script_dir, '..', 'results'))
     table, _ = run_eda(df, out_dir)
     print("EDA completed. Generated Table 1:")
     print(table[['Attribute', 'Type', 'Min', 'Max']].to_string(index=False))
