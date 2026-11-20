@@ -1,0 +1,11 @@
+Trial,Axis,Architecture,Hidden_Layers,Layer_Dims,Parameters,Learning_Rate,Dropout,Best_Val_Loss,Val_MAE,Val_RMSE,Val_R2,Epochs_Trained,Description
+1,Depth,3_layer,3,"[128, 64, 32]",14401,0.001,0.2,0.0971,32.58,46.53,0.9545,25,3 hidden layers
+2,Depth,5_layer,5,"[256, 128, 64, 32, 16]",51937,0.001,0.2,0.0949,32.56,45.99,0.9555,25,5 hidden layers (baseline)
+3,Depth,7_layer,7,"[512, 256, 128, 64, 32, 16, 8]",191601,0.001,0.2,0.1264,38.02,53.07,0.9408,25,7 hidden layers
+4,Width,5_layer_narrow,5,"[128, 64, 32, 16, 8]",15089,0.001,0.2,0.1345,39.77,54.75,0.9369,16,Narrow (128 base)
+5,Width,5_layer_wide,5,"[512, 256, 128, 64, 32]",190913,0.001,0.2,0.0984,32.26,46.83,0.9539,25,Wide (512 base)
+6,Learning Rate,5_layer,5,"[256, 128, 64, 32, 16]",51937,0.01,0.2,0.1422,38.9,56.29,0.9334,10,Fast lr (0.01)
+7,Learning Rate,5_layer,5,"[256, 128, 64, 32, 16]",51937,0.0001,0.2,0.1348,38.23,54.81,0.9368,25,Slow lr (0.0001)
+8,Dropout,5_layer,5,"[256, 128, 64, 32, 16]",51937,0.001,0.0,0.0895,31.09,44.66,0.9581,25,No dropout (p=0.0)
+9,Dropout,5_layer,5,"[256, 128, 64, 32, 16]",51937,0.001,0.1,0.094,32.45,45.78,0.9559,24,Light dropout (p=0.1)
+10,Dropout,5_layer,5,"[256, 128, 64, 32, 16]",51937,0.001,0.3,0.1228,38.44,52.32,0.9424,25,Heavy dropout (p=0.3)

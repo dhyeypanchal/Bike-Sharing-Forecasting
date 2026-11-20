@@ -32,6 +32,7 @@ class DeepBikeNet(nn.Module):
 # Preset network configurations for hyperparameter tuning
 ARCHITECTURES = {
     '3_layer': [128, 64, 32],
+    '5_layer_narrow': [128, 64, 32, 16, 8],
     '5_layer': [256, 128, 64, 32, 16],
     '5_layer_wide': [512, 256, 128, 64, 32],
     '7_layer': [512, 256, 128, 64, 32, 16, 8],

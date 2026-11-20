@@ -1,0 +1,6 @@
+Model,MAE,RMSE,R2,Fit+predict time (s)
+Seasonal naive,65.01,112.18,0.7411,0.12
+Linear Regression,98.69,133.82,0.6316,0.49
+SVR (RBF),75.53,127.09,0.6678,9.22
+Random Forest,44.99,69.56,0.9005,0.82
+Tuned 5-Layer DNN (Ours),31.41,47.65,0.9533,14.8
