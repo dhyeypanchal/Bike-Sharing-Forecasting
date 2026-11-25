@@ -243,8 +243,8 @@ def main():
         print(f"Note: Could not run A1 Random Forest directly ({e}). Proceeding with DNN metrics.")
 
     # 3b. Fairness check: the A1 random forest (same settings, untuned) given the SAME
-    # engineered features and the SAME training hours (train + validation) as the DNN.
-    # This separates the gain from the new features from the gain from the network.
+    # engineered features as the DNN, trained on train + validation hours. Note the DNN
+    # itself trains only on the train hours (validation is used for early stopping).
     feature_cols = data['feature_cols']
     rf_train_df = pd.concat([data['train_df'], data['val_df']], ignore_index=True)
     rf_start = time.time()
@@ -253,11 +253,26 @@ def main():
     rf_same_preds = np.clip(rf_same.predict(test_df[feature_cols]), 0, None)
     rf_same_seconds = time.time() - rf_start
     rf_same_row = pd.DataFrame([{
-        'Model': f'Random Forest (A1 settings, same {len(feature_cols)} features)',
+        'Model': f'Random Forest (A1 settings, same {len(feature_cols)} features, train+val hours)',
         'MAE': round(mean_absolute_error(y_test_raw, rf_same_preds), 2),
         'RMSE': round(float(np.sqrt(mean_squared_error(y_test_raw, rf_same_preds))), 2),
         'R2': round(r2_score(y_test_raw, rf_same_preds), 4),
         'Fit+predict time (s)': round(rf_same_seconds, 2),
+    }])
+
+    # 3c. Same random forest trained ONLY on the DNN's training hours (validation hours
+    # excluded, as the DNN uses them only for early stopping): like-for-like comparison.
+    rf_train_only_start = time.time()
+    rf_train_only = RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1)
+    rf_train_only.fit(data['train_df'][feature_cols], data['train_df']['cnt'])
+    rf_train_only_preds = np.clip(rf_train_only.predict(test_df[feature_cols]), 0, None)
+    rf_train_only_seconds = time.time() - rf_train_only_start
+    rf_train_only_row = pd.DataFrame([{
+        'Model': f'Random Forest (A1 settings, same {len(feature_cols)} features, train hours only)',
+        'MAE': round(mean_absolute_error(y_test_raw, rf_train_only_preds), 2),
+        'RMSE': round(float(np.sqrt(mean_squared_error(y_test_raw, rf_train_only_preds))), 2),
+        'R2': round(r2_score(y_test_raw, rf_train_only_preds), 4),
+        'Fit+predict time (s)': round(rf_train_only_seconds, 2),
     }])
 
     # 4. Load A1 holdout results and construct comprehensive comparison table
@@ -279,7 +294,7 @@ def main():
         'R2': round(dnn_r2, 4),
         'Fit+predict time (s)': round(dnn_fit_predict_seconds, 2),
     }])
-    full_comparison = pd.concat([comparison_df, rf_same_row, dnn_row], ignore_index=True)
+    full_comparison = pd.concat([comparison_df, rf_train_only_row, rf_same_row, dnn_row], ignore_index=True)
 
     comparison_out_path = os.path.join(RESULTS_DIR, 'model_comparison_dnn.csv')
     full_comparison.to_csv(comparison_out_path, index=False)

@@ -142,13 +142,15 @@ All models were evaluated on the exact same untouched 3,476-hour holdout test se
 | **SVR (RBF)** | 12 A1 attributes, cyclical $\sin/\cos$ | 75.53 | 127.09 | 0.6678 |
 | **Seasonal Naive** | Lag Baseline ($t - 168$h) | 65.01 | 112.18 | 0.7411 |
 | **Random Forest** | 12 A1 attributes (100 trees, A1 champion) | 44.99 | 69.56 | 0.9005 |
-| **Random Forest, same features** | Same 27 features as the DNN, A1 settings (untuned) | **30.35** | 49.62 | 0.9494 |
+| **Random Forest, same features (train hours only)** | Same 27 features and same 11,680 training hours as the DNN, A1 settings (untuned) | 38.22 | 62.56 | 0.9195 |
+| **Random Forest, same features (train + val hours)** | Same 27 features, trained on 13,742 hours incl. the 2,062 validation hours, A1 settings (untuned) | **30.35** | 49.62 | 0.9494 |
 | **Tuned DNN (Ours)** | 27 features, 5 hidden layers `[512, 256, 128, 64, 32]`, dropout 0.2 | 32.35 | **48.48** | **0.9517** |
 
 ### Key Findings:
 - The tuned DNN reduces MAE by **28.1%** compared with Assignment 1's best model (44.99 → 32.35 bikes) and by **50.2%** compared with the Seasonal Naive baseline.
-- Most of this gain comes from the new lag features, not the network: the untuned Assignment 1 Random Forest given the same 27 features reaches MAE 30.35 (32.5% lower than its A1 result).
-- Against that fair comparison, the DNN has 2.00 bikes higher MAE but 1.14 bikes lower RMSE and slightly higher $R^2$ (fewer large errors), at about 10× the fit time (39.9 s vs 4.0 s).
+- About half of this gain comes from the new lag features and half from the network: with the same 27 features and training hours, the untuned Assignment 1 Random Forest improves from MAE 44.99 to 38.22 (15.0%), and the DNN improves further to 32.35 (15.4% lower than that forest).
+- With the same features and the same training hours, the DNN beats the Random Forest (MAE 32.35 vs 38.22, RMSE 48.48 vs 62.56).
+- When the Random Forest is also trained on the 2,062 most recent validation hours, it reaches MAE 30.35 (RMSE 49.62). Demand was growing, and trees cannot predict above levels seen in training, so the most recent hours matter more for the forest than for the network.
 - The forecast is 1 hour ahead (it uses the previous hour's demand), and the weather inputs are observed values rather than forecasts.
 
 ### 5-Fold Expanding Time-Series Cross-Validation (Training Period)

@@ -3,5 +3,6 @@ Seasonal naive,65.01,112.18,0.7411,0.09
 Linear Regression,98.69,133.82,0.6316,0.14
 SVR (RBF),75.53,127.09,0.6678,10.5
 Random Forest,44.99,69.56,0.9005,0.81
-"Random Forest (A1 settings, same 27 features)",30.35,49.62,0.9494,4.03
+"Random Forest (A1 settings, same 27 features, train hours only)",38.22,62.56,0.9195,4.02
+"Random Forest (A1 settings, same 27 features, train+val hours)",30.35,49.62,0.9494,4.74
 Tuned 5-layer DNN (Ours),32.35,48.48,0.9517,39.9
