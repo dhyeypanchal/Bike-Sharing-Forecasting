@@ -1,6 +1,7 @@
 import os
 import sys
 import copy
+import random
 import numpy as np
 import torch
 import torch.nn as nn
@@ -10,6 +11,15 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from dataset import prepare_data, get_dataloaders
 from model import build_model
+
+SEED = 42
+
+
+def set_seed(seed=SEED):
+    """Fix all random sources (weight init, batch shuffling) so runs are reproducible."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
 
 
 def train_one_epoch(model, loader, criterion, optimizer, device):
@@ -50,6 +60,18 @@ def evaluate(model, loader, criterion, device):
     return total_loss / len(loader.dataset)
 
 
+def mae_in_bikes(model, dataset, y_scaler, device):
+    """Mean absolute error in real bike counts (predictions un-scaled and clipped at 0).
+    Reads the dataset tensors directly instead of a DataLoader, because starting a
+    DataLoader draws a random number and would change the batch order of later epochs."""
+    model.eval()
+    scale, mean = float(y_scaler.scale_[0]), float(y_scaler.mean_[0])
+    with torch.no_grad():
+        preds = model(dataset.X.to(device)).cpu() * scale + mean
+    actual = dataset.y * scale + mean
+    return (preds.clamp(min=0) - actual).abs().mean().item()
+
+
 def train_network(
     model,
     train_loader,
@@ -59,8 +81,10 @@ def train_network(
     weight_decay=1e-4,
     patience=10,
     device='cpu',
-    verbose=True
+    verbose=True,
+    y_scaler=None
 ):
+    """If y_scaler is given, train and validation MAE in bikes are also recorded every epoch."""
     model = model.to(device)
     criterion = nn.MSELoss()
     optimizer = Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -71,6 +95,9 @@ def train_network(
         'val_loss': [],
         'lr': [],
     }
+    if y_scaler is not None:
+        history['train_mae'] = []
+        history['val_mae'] = []
 
     best_val_loss = float('inf')
     best_weights = copy.deepcopy(model.state_dict())
@@ -85,6 +112,9 @@ def train_network(
         history['train_loss'].append(train_loss)
         history['val_loss'].append(val_loss)
         history['lr'].append(current_lr)
+        if y_scaler is not None:
+            history['train_mae'].append(mae_in_bikes(model, train_loader.dataset, y_scaler, device))
+            history['val_mae'].append(mae_in_bikes(model, val_loader.dataset, y_scaler, device))
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -109,11 +139,12 @@ def train_network(
 
 
 if __name__ == '__main__':
+    set_seed()
     data = prepare_data()
     train_loader, val_loader, test_loader = get_dataloaders(data, batch_size=64)
 
     print("Training 5-layer default network for 15 quick epochs...")
-    model = build_model('5_layer', input_dim=27, dropout_rate=0.2)
+    model = build_model('5_layer', input_dim=len(data['feature_cols']), dropout_rate=0.2)
     trained_model, hist = train_network(model, train_loader, val_loader, epochs=15, lr=0.001)
 
     print("Initial train loss:", round(hist['train_loss'][0], 4))

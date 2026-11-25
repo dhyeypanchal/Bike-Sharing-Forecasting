@@ -3,7 +3,7 @@ import torch.nn as nn
 
 
 class DeepBikeNet(nn.Module):
-    def __init__(self, input_dim=27, hidden_dims=[256, 128, 64, 32, 16], dropout_rate=0.2):
+    def __init__(self, input_dim, hidden_dims=[256, 128, 64, 32, 16], dropout_rate=0.2):
         super().__init__()
         self.input_dim = input_dim
         self.hidden_dims = hidden_dims
@@ -39,15 +39,23 @@ ARCHITECTURES = {
 }
 
 
-def build_model(arch='5_layer', input_dim=27, dropout_rate=0.2):
+def build_model(arch, input_dim, dropout_rate=0.2):
+    """input_dim has no default: callers pass len(feature_cols) so it always matches the data."""
     if arch not in ARCHITECTURES:
         raise ValueError(f"Unknown architecture: {arch}")
     return DeepBikeNet(input_dim=input_dim, hidden_dims=ARCHITECTURES[arch], dropout_rate=dropout_rate)
 
 
 if __name__ == '__main__':
-    dummy = torch.randn(64, 27)
-    model = build_model('5_layer')
+    import os
+    import sys
+    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+    from features import get_feature_lists
+
+    n_features = len(get_feature_lists()['all'])
+    dummy = torch.randn(64, n_features)
+    model = build_model('5_layer', input_dim=n_features)
+    print("Input features:", n_features)
     pred = model(dummy)
     print("5-layer network:", model.hidden_dims)
     print("Output shape:", pred.shape)

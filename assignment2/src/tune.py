@@ -1,5 +1,7 @@
 import os
 import sys
+import json
+import time
 import numpy as np
 import pandas as pd
 import torch
@@ -8,7 +10,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from dataset import prepare_data, get_dataloaders
 from model import build_model, ARCHITECTURES
-from train import train_network
+from train import train_network, set_seed, SEED
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 RESULTS_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'results'))
@@ -59,7 +61,11 @@ TUNING_TRIALS = [
 ]
 
 
-def run_tuning(epochs_per_trial=30, batch_size=64, device='cpu'):
+MAX_EPOCHS = 100        # upper bound; training normally ends by early stopping first
+EARLY_STOP_PATIENCE = 10
+
+
+def run_tuning(epochs_per_trial=MAX_EPOCHS, batch_size=64, device='cpu'):
     os.makedirs(RESULTS_DIR, exist_ok=True)
     print("=" * 70)
     print("Assignment 2: Hyperparameter Tuning Experiments")
@@ -88,22 +94,28 @@ def run_tuning(epochs_per_trial=30, batch_size=64, device='cpu'):
         dropout = cfg['dropout']
         axis = cfg['axis']
 
+        # Same seed for every trial: identical batch order, init differs only by architecture
+        set_seed(SEED)
+
         # Instantiate model architecture
-        model = build_model(arch=arch, input_dim=27, dropout_rate=dropout)
+        model = build_model(arch=arch, input_dim=len(data['feature_cols']), dropout_rate=dropout)
         n_params = model.count_parameters()
         n_layers = len(ARCHITECTURES[arch])
 
-        # Train model
+        # Train model (timed, so the report can quote the real training cost)
+        fit_start = time.time()
         trained_model, history = train_network(
             model,
             train_loader,
             val_loader,
             epochs=epochs_per_trial,
             lr=lr,
-            patience=7,
+            patience=EARLY_STOP_PATIENCE,
             device=device,
-            verbose=False
+            verbose=False,
+            y_scaler=y_scaler
         )
+        fit_seconds = time.time() - fit_start
 
         # Evaluate on validation set
         metrics = evaluate_on_loader(trained_model, val_loader, y_scaler, y_val_raw, device=device)
@@ -123,6 +135,7 @@ def run_tuning(epochs_per_trial=30, batch_size=64, device='cpu'):
             'Val_RMSE': round(metrics['RMSE'], 2),
             'Val_R2': round(metrics['R2'], 4),
             'Epochs_Trained': len(history['val_loss']),
+            'Fit_Seconds': round(fit_seconds, 1),
             'Description': cfg['note'],
         })
 
@@ -130,7 +143,15 @@ def run_tuning(epochs_per_trial=30, batch_size=64, device='cpu'):
         if metrics['MAE'] < best_val_mae:
             best_val_mae = metrics['MAE']
             best_model_weights = trained_model.state_dict()
-            best_trial_config = cfg
+            best_trial_config = {
+                **cfg,
+                'hidden_dims': ARCHITECTURES[arch],
+                'input_dim': len(data['feature_cols']),
+                'val_mae': round(float(metrics['MAE']), 2),
+                'epochs_trained': len(history['val_loss']),
+                'fit_seconds': round(fit_seconds, 2),
+                'seed': SEED,
+            }
             best_history = history
             is_best = " (NEW BEST)"
 
@@ -150,6 +171,12 @@ def run_tuning(epochs_per_trial=30, batch_size=64, device='cpu'):
         hist_df.to_csv(os.path.join(RESULTS_DIR, 'best_training_history.csv'), index=False)
         print(f"Saved champion model checkpoint to: {weights_path}")
 
+        # Save champion configuration so evaluate_dnn.py rebuilds exactly this network
+        config_path = os.path.join(RESULTS_DIR, 'best_config.json')
+        with open(config_path, 'w') as f:
+            json.dump(best_trial_config, f, indent=2)
+        print(f"Saved champion configuration to: {config_path}")
+
     print("\n" + "=" * 70)
     print(f"Tuning Completed! Champion Config: Trial #{best_trial_config['trial']} ({best_trial_config['arch']}, lr={best_trial_config['lr']}, dropout={best_trial_config['dropout']})")
     print(f"Champion Validation Score: MAE = {best_val_mae:.2f} bikes")
@@ -159,4 +186,4 @@ def run_tuning(epochs_per_trial=30, batch_size=64, device='cpu'):
 
 
 if __name__ == '__main__':
-    run_tuning(epochs_per_trial=25)
+    run_tuning()

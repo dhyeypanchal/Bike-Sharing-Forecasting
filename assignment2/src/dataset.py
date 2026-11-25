@@ -30,10 +30,15 @@ def prepare_data(data_path=None, val_ratio=0.15, train_ratio=0.8):
     feature_cols = feature_info['all']
     target_col = 'cnt'
 
-    # Chronological 80/20 train/test split
+    # Chronological 80/20 train/test split (same test hours as Assignment 1)
     split_idx = int(len(df) * train_ratio)
-    train_full_df = df.iloc[:split_idx].copy().reset_index(drop=True)
+    train_full_df = df.iloc[:split_idx].copy()
     test_df = df.iloc[split_idx:].copy().reset_index(drop=True)
+
+    # Drop warm-up rows (first week, no 168h lag history yet); all lie in training
+    train_full_df = train_full_df.dropna(subset=feature_cols).reset_index(drop=True)
+    if test_df[feature_cols].isnull().any().any():
+        raise ValueError("Unexpected missing lag values in the test set")
 
     # Validation split from training data
     val_split_idx = int(len(train_full_df) * (1 - val_ratio))

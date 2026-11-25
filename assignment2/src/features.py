@@ -33,23 +33,28 @@ def load_raw_data(data_path=None):
     return df
 
 
+LAG_HOURS = {'lag_1h': 1, 'lag_2h': 2, 'lag_3h': 3, 'lag_24h': 24, 'lag_168h': 168}
+
+
 def engineer_datetime_features(df):
     df = df.copy().sort_values('timestamp').reset_index(drop=True)
 
-    # Historical demand lags (1h, 2h, 3h, 24h, 168h)
-    df['lag_1h'] = df['cnt'].shift(1)
-    df['lag_2h'] = df['cnt'].shift(2)
-    df['lag_3h'] = df['cnt'].shift(3)
-    df['lag_24h'] = df['cnt'].shift(24)
-    df['lag_168h'] = df['cnt'].shift(168)
-
-    # Rolling statistics
-    rolling_6 = df['cnt'].shift(1).rolling(window=6, min_periods=1)
-    df['rolling_mean_6h'] = rolling_6.mean()
-    df['rolling_std_6h'] = rolling_6.std().fillna(0)
-
-    rolling_24 = df['cnt'].shift(1).rolling(window=24, min_periods=1)
-    df['rolling_mean_24h'] = rolling_24.mean()
+    # Lags and rolling stats are computed on a complete hourly time grid, so that
+    # "24h ago" really means 24 hours earlier even though 165 hours are missing
+    # from the file. A missing hour takes the last observed count (forward fill),
+    # which only uses past information. The first 168 hours have no full history,
+    # so their lag columns stay NaN; prepare_data() drops these warm-up rows from
+    # the training set after the chronological split.
+    hourly = df.set_index('timestamp')['cnt'].asfreq('h').ffill()
+    past = hourly.shift(1)
+    grid = pd.DataFrame(index=hourly.index)
+    for col, hours in LAG_HOURS.items():
+        grid[col] = hourly.shift(hours)
+    grid['rolling_mean_6h'] = past.rolling(window=6, min_periods=6).mean()
+    grid['rolling_std_6h'] = past.rolling(window=6, min_periods=6).std()
+    grid['rolling_mean_24h'] = past.rolling(window=24, min_periods=24).mean()
+    for col in grid.columns:
+        df[col] = df['timestamp'].map(grid[col])
 
     # Cyclical date/time encodings
     df['sin_hr'] = np.sin(2 * np.pi * df['hr'] / 24.0)
@@ -61,7 +66,7 @@ def engineer_datetime_features(df):
     df['sin_mnth'] = np.sin(2 * np.pi * df['mnth'] / 12.0)
     df['cos_mnth'] = np.cos(2 * np.pi * df['mnth'] / 12.0)
 
-    day_of_year = df['timestamp'].dt.dayofyear
+    day_of_year = df['timestamp'].dt.day_of_year
     df['sin_dayofyear'] = np.sin(2 * np.pi * day_of_year / 365.25)
     df['cos_dayofyear'] = np.cos(2 * np.pi * day_of_year / 365.25)
 
@@ -70,13 +75,6 @@ def engineer_datetime_features(df):
     is_evening_rush = (df['hr'].between(16, 19)) & (df['workingday'] == 1)
     df['is_rush_hour'] = (is_morning_rush | is_evening_rush).astype(float)
     df['is_weekend_midday'] = ((df['hr'].between(11, 15)) & (df['workingday'] == 0)).astype(float)
-
-    # Fill initial warmup period
-    lag_cols = [
-        'lag_1h', 'lag_2h', 'lag_3h', 'lag_24h', 'lag_168h',
-        'rolling_mean_6h', 'rolling_std_6h', 'rolling_mean_24h'
-    ]
-    df[lag_cols] = df[lag_cols].bfill()
 
     # Drop target leakage columns
     drop_cols = ['instant', 'dteday', 'casual', 'registered']
@@ -111,4 +109,6 @@ if __name__ == '__main__':
     flists = get_feature_lists()
     print("Features created:", len(flists['all']))
     print("Dataset shape:", featured.shape)
-    print("Null values:", featured[flists['all']].isnull().sum().sum())
+    warmup = featured[flists['all']].isnull().any(axis=1)
+    print("Warm-up rows without full lag history (dropped from training):", int(warmup.sum()))
+    print("Null values after warm-up:", int(featured.loc[~warmup, flists['all']].isnull().sum().sum()))

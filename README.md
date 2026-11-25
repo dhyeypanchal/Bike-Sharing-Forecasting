@@ -11,20 +11,21 @@ Department of Electrical and Computer Engineering
 
 This repository contains the complete forecasting and deep learning pipelines for ECE 9603/9063:
 - **Assignment 1 (Forecasting Paradigms):** Evaluates baseline linear, kernel dual space, and tree ensemble models (Seasonal Naive, Multivariate Linear Regression, Support Vector Regression, Random Forest) on 12 static attributes across chronological 80/20 holdout and 5-fold expanding-window cross-validation.
-- **Assignment 2 (Deep Neural Networks):** Expands the feature space to 27 engineered temporal lag, rolling momentum, and cyclical coordinates (zero lookahead leakage), and designs, trains, and systematically tunes a $\ge 5$-hidden-layer Deep Neural Network (DNN) with Batch Normalization and Dropout.
+- **Assignment 2 (Deep Neural Networks):** Expands the feature space to 27 engineered features (timestamp-aligned demand lags, rolling statistics, cyclical date/time encodings and rush-hour flags) for a 1-hour-ahead forecast, and designs, trains, and systematically tunes a $\ge 5$-hidden-layer Deep Neural Network (DNN) with Batch Normalization and Dropout. Lags only use demand from earlier hours; the weather columns are the observed values, which strictly would only be available as a forecast at decision time.
 
 ### Group Responsibilities & Work Distribution:
 
 - **Dhyey Panchal:**
   - Led the Deep Neural Network architecture design and PyTorch implementation (`DeepBikeNet`), incorporating linear transformations, Batch Normalization, and ReLU activations.
-  - Designed and implemented the temporal feature engineering pipeline (27 features: autoregressive demand lags, rolling window momentum, continuous cyclical coordinates, and commuter indicators with strict `.shift(1)` zero-leakage shifting).
+  - Designed and implemented the temporal feature engineering pipeline (27 features: autoregressive demand lags, rolling window momentum, continuous cyclical coordinates, and commuter indicators, using only demand from earlier hours).
   - Built the modular PyTorch training loop with mini-batch Adam optimization, gradient norm clipping (threshold 1.0), dynamic `ReduceLROnPlateau` learning rate scheduling, and early stopping.
   - Conceived and executed the systematic 10-trial hyperparameter ablation engine across Depth (3 vs 5 vs 7 layers), Width, Learning Rate, and Dropout.
   - Performed final test set evaluation on 3,476 held-out hours, generated comparative benchmarks against Assignment 1 models, and authored the Methodology and Results sections.
 
 - **Aseel Qureshi:**
-  - Conducted the raw dataset audit across all 17,379 hourly records from the UCI repository, verifying complete attribute completeness and zero missing values.
-  - Set up and verified the chronological data partitioning (80% development, 15% validation, and 20% holdout test) and confirmed proper `StandardScaler` fitting on training data.
+  - Conducted the raw dataset audit across all 17,379 hourly records from the UCI repository: no null values, but 165 of the 17,544 hours in 2011–2012 are absent from the file.
+  - Reviewed the Assignment 2 pipeline and fixed lag features to be timestamp-aligned (previously row shifts, wrong after the 165 missing hours), removed a backfill leak in the first rows, added random seeds, longer early-stopping patience, saved champion configuration, measured training time, per-epoch MAE tracking, and a same-features Random Forest comparison.
+  - Set up and verified the chronological data partitioning (11,680 train / 2,062 validation / 3,476 test hours, about 68/12/20) and confirmed proper `StandardScaler` fitting on training data.
   - Researched alternative deep learning candidates (RNNs, LSTMs, and shallow MLPs), analyzing computational latency, parameter efficiency, and suitability for multi-scale seasonal jumps.
   - Evaluated baseline model performance across cross-validation folds, assisted with residual error analysis across the 24 hours of the day, and verified metric calculations.
   - Co-authored the Problem Description and Background sections, verified table formatting, and assisted with comparative holdout analysis.
@@ -54,18 +55,19 @@ This repository contains the complete forecasting and deep learning pipelines fo
 │       └── fig4_cv_fold_mae.png
 ├── assignment2/                          # Assignment 2: Deep Neural Networks
 │   ├── src/
-│   │   ├── features.py                   # 27 lag, rolling, and cyclical features (zero-leakage)
-│   │   ├── dataset.py                    # Scalers, 80/15/20 splits & PyTorch DataLoaders
+│   │   ├── features.py                   # 27 timestamp-aligned lag, rolling, and cyclical features
+│   │   ├── dataset.py                    # Scalers, 68/12/20 chronological split & PyTorch DataLoaders
 │   │   ├── model.py                      # Configurable >= 5 hidden layer DeepBikeNet
 │   │   ├── train.py                      # Training loop with Adam, ReduceLROnPlateau, Early Stopping
 │   │   ├── tune.py                       # 10-trial hyperparameter ablation engine (depth, width, lr, drop)
 │   │   └── evaluate_dnn.py               # Test set evaluation, comparative benchmarks & plots
 │   └── results/                          # Generated A2 figures, checkpoints, and benchmark tables
-│       ├── best_model.pt                 # Champion 5-layer model weights
-│       ├── best_training_history.csv     # Training & validation loss history
+│       ├── best_model.pt                 # Champion model weights
+│       ├── best_config.json              # Champion configuration (read by evaluate_dnn.py)
+│       ├── best_training_history.csv     # Per-epoch training/validation loss and MAE
 │       ├── tuning_summary.csv            # 10-trial hyperparameter tuning summary
 │       ├── model_comparison_dnn.csv      # Comparative benchmark against A1 models
-│       ├── fig1_dnn_learning_curve.png   # Train vs. validation loss curve
+│       ├── fig1_dnn_learning_curve.png   # Train vs. validation loss and MAE curves
 │       ├── fig2_dnn_tuning_ablation.png  # 4-panel tuning ablation bar chart
 │       ├── fig3_dnn_forecast_tracking_week.png # 7-day test forecast tracking
 │       └── fig4_dnn_error_by_hour.png    # Residual error by hour of day
@@ -80,7 +82,7 @@ This repository contains the complete forecasting and deep learning pipelines fo
 
 ## 3. Setup & Installation
 
-Requirements: Python 3.9+ (tested on Python 3.11)
+Requirements: Python 3.9+ (tested on Python 3.12.3 with pandas 3.1.1, scikit-learn 1.9.1, PyTorch 2.15.0, CPU only)
 
 Install dependencies:
 ```bash
@@ -113,17 +115,17 @@ pip install -r requirements.txt
    python assignment2/src/dataset.py
    ```
 3. **Run 10-Trial Hyperparameter Tuning Ablation:**
-   Explores Depth (3 vs 5 vs 7 layers), Width (Narrow vs Medium vs Wide), Learning Rate (0.01 vs 0.001 vs 0.0001), and Dropout (0.0 to 0.3):
+   Explores Depth (3 vs 5 vs 7 layers), Width (Narrow vs Medium vs Wide), Learning Rate (0.01 vs 0.001 vs 0.0001), and Dropout (0.0 to 0.3), one factor at a time, selecting the champion by validation MAE. Each trial uses seed 42, Adam, batch size 64, weight decay 1e-4, at most 100 epochs with early stopping (patience 10). Takes about 6 minutes on a laptop CPU. Saves `tuning_summary.csv`, `best_model.pt`, `best_config.json` and `best_training_history.csv`:
    ```bash
    python assignment2/src/tune.py
    ```
-4. **Evaluate Champion Model on Held-Out Test Set (3,476 Hours) & Generate Figures:**
+4. **Evaluate Champion Model on Held-Out Test Set (3,476 Hours) & Generate Figures** (run `tune.py` first; the champion is rebuilt from `best_config.json`):
    ```bash
    python assignment2/src/evaluate_dnn.py
    ```
    Outputs saved to `assignment2/results/`:
-   - `model_comparison_dnn.csv` (holdout performance comparison)
-   - `fig1_dnn_learning_curve.png` (training vs validation loss trajectory)
+   - `model_comparison_dnn.csv` (holdout comparison with Assignment 1 models and a Random Forest trained on the same 27 features)
+   - `fig1_dnn_learning_curve.png` (training vs validation loss and MAE per epoch)
    - `fig2_dnn_tuning_ablation.png` (4-panel tuning comparison)
    - `fig3_dnn_forecast_tracking_week.png` (7-day forecast timeline)
    - `fig4_dnn_error_by_hour.png` (error breakdown across 24 hours)
@@ -132,20 +134,22 @@ pip install -r requirements.txt
 
 ## 5. Comparative Performance Summary
 
-All models were evaluated on the exact same untouched 3,476-hour holdout test set (October 1, 2012 to December 31, 2012):
+All models were evaluated on the exact same untouched 3,476-hour holdout test set (7 August 2012 12:00 to 31 December 2012 23:00):
 
-| Model | Paradigm / Architecture | Test MAE (bikes) | Test RMSE (bikes) | Test $R^2$ Score |
+| Model | Features / Architecture | Test MAE (bikes) | Test RMSE (bikes) | Test $R^2$ Score |
 | :--- | :--- | :---: | :---: | :---: |
-| **Linear Regression** | Parametric (OLS + One-Hot) | 98.69 | 133.82 | 0.6316 |
-| **SVR (RBF)** | Kernel Dual Space + Cyclical $\sin/\cos$ | 75.53 | 127.09 | 0.6678 |
+| **Linear Regression** | 12 A1 attributes (OLS + One-Hot) | 98.69 | 133.82 | 0.6316 |
+| **SVR (RBF)** | 12 A1 attributes, cyclical $\sin/\cos$ | 75.53 | 127.09 | 0.6678 |
 | **Seasonal Naive** | Lag Baseline ($t - 168$h) | 65.01 | 112.18 | 0.7411 |
-| **Random Forest** | Bagging Ensemble (100 Trees, A1 Champion) | 44.99 | 69.56 | 0.9005 |
-| **Tuned 5-Layer DNN (Ours)** | **Deep Neural Network (`[256, 128, 64, 32, 16]`)** | **31.41** | **47.65** | **0.9533** |
+| **Random Forest** | 12 A1 attributes (100 trees, A1 champion) | 44.99 | 69.56 | 0.9005 |
+| **Random Forest, same features** | Same 27 features as the DNN, A1 settings (untuned) | **30.35** | 49.62 | 0.9494 |
+| **Tuned DNN (Ours)** | 27 features, 5 hidden layers `[512, 256, 128, 64, 32]`, dropout 0.2 | 32.35 | **48.48** | **0.9517** |
 
-### Key Improvements:
-- **30.2% error reduction** over Assignment 1's best model (Random Forest MAE dropped from 44.99 to 31.41 bikes).
-- **51.7% error reduction** over the Seasonal Naive baseline.
-- **$R^2$ exceeded 0.95**, capturing over 95.3% of all variance in hourly demand on unseen future data.
+### Key Findings:
+- The tuned DNN reduces MAE by **28.1%** compared with Assignment 1's best model (44.99 → 32.35 bikes) and by **50.2%** compared with the Seasonal Naive baseline.
+- Most of this gain comes from the new lag features, not the network: the untuned Assignment 1 Random Forest given the same 27 features reaches MAE 30.35 (32.5% lower than its A1 result).
+- Against that fair comparison, the DNN has 2.00 bikes higher MAE but 1.14 bikes lower RMSE and slightly higher $R^2$ (fewer large errors), at about 10× the fit time (39.9 s vs 4.0 s).
+- The forecast is 1 hour ahead (it uses the previous hour's demand), and the weather inputs are observed values rather than forecasts.
 
 ### 5-Fold Expanding Time-Series Cross-Validation (Training Period)
 
@@ -159,6 +163,8 @@ All models were evaluated on the exact same untouched 3,476-hour holdout test se
 ---
 
 ## 6. Generative AI Statement (Code)
+
+Generative AI was used to assist with parts of the code.
 
 In accordance with Western University's ECE 9603/9063 course policy, here is an honest description of our engineering journey, our individual contributions, and where we leveraged generative AI:
 
@@ -178,8 +184,9 @@ In accordance with Western University's ECE 9603/9063 course policy, here is an 
   2. Architectural best practices for deep networks ($\ge 5$ layers), specifically validating the layer ordering: `Linear` $\rightarrow$ `BatchNorm1d` $\rightarrow$ `ReLU` $\rightarrow$ `Dropout`.
   3. PyTorch syntax assistance for gradient norm clipping (`torch.nn.utils.clip_grad_norm_`), configuring the dynamic `ReduceLROnPlateau` scheduler parameters, and structuring the 10-trial hyperparameter ablation loop.
 - **Our Follow-Up Effort:**
-  1. We wrote the feature engineering pipeline in `features.py`, ensuring strict zero lookahead leakage by writing explicit `.shift(1)` logic so target demand at hour $t$ is never accessible.
+  1. We wrote the feature engineering pipeline in `features.py`, making sure target demand at hour $t$ is never used as an input.
   2. We implemented `DeepBikeNet` in PyTorch, structured the custom PyTorch `Dataset` and `DataLoader` pipeline, and created narrow, medium, and wide configurations across 3, 5, and 7 hidden layers.
-  3. We executed and monitored all 10 tuning trials, analyzed the resulting trade-offs (understanding why 7 layers degraded due to overparameterization and why dropout $p=0.0$ won with Batch Normalization), and wrote `evaluate_dnn.py` to compare our champion network against all Assignment 1 models.
+  3. We executed and monitored all 10 tuning trials, analyzed the resulting trade-offs, and wrote `evaluate_dnn.py` to compare our champion network against all Assignment 1 models.
+- **Review and fixes (AI-assisted):** During a code review we found that the lag features were row shifts rather than time shifts (wrong after the 165 missing hours), that backfilling leaked the target into the first rows, that trials were not seeded, and that the evaluation script hard-coded the champion and its fit time. An AI coding assistant helped implement the fixes (timestamp-aligned lags, seeds, early-stopping patience, saved champion configuration, measured timings, per-epoch MAE tracking, and the same-features Random Forest comparison). We checked each fix by re-running the pipeline; all numbers in this README come from that run.
 
 Both group members tested, ran, and validated all scripts end-to-end. We fully understand, can justify, and can defend every architectural choice, mathematical formulation, and hyperparameter in our work. We wrote the entire accompanying report ourselves from our experimental findings.

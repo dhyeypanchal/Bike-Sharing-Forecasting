@@ -1,10 +1,13 @@
 import os
 import sys
+import json
+import time
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import torch
+from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -18,36 +21,62 @@ A1_RESULTS_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, '..', '..', 'assignmen
 A1_SRC_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, '..', '..', 'assignment1', 'src'))
 
 
-def load_champion_model(device='cpu'):
+def load_champion_model(input_dim, device='cpu'):
     weights_path = os.path.join(RESULTS_DIR, 'best_model.pt')
-    if not os.path.exists(weights_path):
-        raise FileNotFoundError(f"Champion weights not found at {weights_path}. Run tune.py first.")
+    config_path = os.path.join(RESULTS_DIR, 'best_config.json')
+    for path in (weights_path, config_path):
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"{path} not found. Run tune.py first.")
 
-    # Champion configuration: 5 layers, input_dim=27, dropout=0.0
-    model = build_model(arch='5_layer', input_dim=27, dropout_rate=0.0)
+    # Rebuild exactly the network that tune.py selected
+    with open(config_path) as f:
+        config = json.load(f)
+    if config['input_dim'] != input_dim:
+        raise ValueError(f"Champion was trained on {config['input_dim']} features, "
+                         f"but the data now has {input_dim}. Re-run tune.py.")
+
+    model = build_model(arch=config['arch'], input_dim=input_dim, dropout_rate=config['dropout'])
     model.load_state_dict(torch.load(weights_path, map_location=device))
     model.to(device)
     model.eval()
-    return model
+    return model, config
 
 
-def plot_learning_curve(history_path, save_path):
+def dnn_label(config):
+    return f"Tuned {len(config['hidden_dims'])}-layer DNN"
+
+
+def plot_learning_curve(history_path, save_path, label):
     if not os.path.exists(history_path):
         return
     history = pd.read_csv(history_path)
-    epochs = range(1, len(history) + 1)
+    epochs = np.arange(1, len(history) + 1)
+    # Epoch whose weights early stopping restored (lowest validation loss)
+    best_epoch = int(history['val_loss'].idxmin()) + 1
 
-    plt.figure(figsize=(8, 5))
-    plt.plot(epochs, history['train_loss'], label='Training Loss (MSE)', color='#2b5c8f', lw=2)
-    plt.plot(epochs, history['val_loss'], label='Validation Loss (MSE)', color='#d95f02', lw=2, linestyle='--')
-    plt.title('Champion 5-Layer Deep Neural Network: Training & Validation Loss', fontsize=12, pad=12)
-    plt.xlabel('Epoch', fontsize=11)
-    plt.ylabel('Normalized Mean Squared Error', fontsize=11)
-    plt.grid(True, linestyle=':', alpha=0.6)
-    plt.legend(frameon=True, fontsize=10)
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=300)
-    plt.close()
+    fig, (ax_loss, ax_mae) = plt.subplots(1, 2, figsize=(13, 4.8))
+
+    ax_loss.plot(epochs, history['train_loss'], label='Training loss', color='#2b5c8f', lw=2)
+    ax_loss.plot(epochs, history['val_loss'], label='Validation loss', color='#d95f02', lw=2, linestyle='--')
+    ax_loss.set_title('Loss (MSE on standardised demand)', fontsize=11)
+    ax_loss.set_ylabel('Mean squared error (standardised)', fontsize=10)
+
+    ax_mae.plot(epochs, history['train_mae'], label='Training MAE', color='#2b5c8f', lw=2)
+    ax_mae.plot(epochs, history['val_mae'], label='Validation MAE', color='#d95f02', lw=2, linestyle='--')
+    ax_mae.set_title('Accuracy: mean absolute error in bikes', fontsize=11)
+    ax_mae.set_ylabel('MAE (bikes per hour)', fontsize=10)
+
+    for ax in (ax_loss, ax_mae):
+        ax.axvline(best_epoch, color='#555555', linestyle=':', lw=1.5,
+                   label=f'Best epoch ({best_epoch}), weights restored')
+        ax.set_xlabel('Epoch', fontsize=10)
+        ax.grid(True, linestyle=':', alpha=0.6)
+        ax.legend(frameon=True, fontsize=9)
+
+    fig.suptitle(f'Champion {label}: learning curves', fontsize=12)
+    fig.tight_layout()
+    fig.savefig(save_path, dpi=300)
+    plt.close(fig)
 
 
 def plot_hyperparameter_tuning(summary_path, save_path):
@@ -104,7 +133,7 @@ def plot_hyperparameter_tuning(summary_path, save_path):
     plt.close()
 
 
-def plot_tracking_week(test_df, y_true, dnn_preds, rf_preds, save_path):
+def plot_tracking_week(test_df, y_true, dnn_preds, rf_preds, save_path, label):
     # Slice the first week of October 2012 (168 hours)
     week_mask = (test_df['timestamp'] >= '2012-10-01') & (test_df['timestamp'] <= '2012-10-07 23:59:59')
     week_df = test_df[week_mask].copy()
@@ -125,7 +154,7 @@ def plot_tracking_week(test_df, y_true, dnn_preds, rf_preds, save_path):
     plt.plot(timestamps, y_actual, label='Actual Demand', color='#111111', lw=2, alpha=0.85)
     if y_rf is not None:
         plt.plot(timestamps, y_rf, label='Assignment 1: Random Forest', color='#e66101', lw=1.5, linestyle=':', alpha=0.8)
-    plt.plot(timestamps, y_dnn, label='Assignment 2: Tuned 5-Layer DNN', color='#0571b0', lw=2, linestyle='-')
+    plt.plot(timestamps, y_dnn, label=f'Assignment 2: {label}', color='#0571b0', lw=2, linestyle='-')
 
     plt.title('Test Set Forecast Tracking: October 1–7, 2012 (168 Hourly Steps)', fontsize=12, pad=12)
     plt.xlabel('Date and Hour', fontsize=11)
@@ -137,7 +166,7 @@ def plot_tracking_week(test_df, y_true, dnn_preds, rf_preds, save_path):
     plt.close()
 
 
-def plot_error_by_hour(test_df, y_true, dnn_preds, rf_preds, save_path):
+def plot_error_by_hour(test_df, y_true, dnn_preds, rf_preds, save_path, label):
     df_err = pd.DataFrame({
         'hr': test_df['hr'].values,
         'DNN_Err': np.abs(y_true - dnn_preds),
@@ -150,7 +179,7 @@ def plot_error_by_hour(test_df, y_true, dnn_preds, rf_preds, save_path):
     plt.figure(figsize=(10, 5))
     if rf_preds is not None:
         plt.plot(grouped['hr'], grouped['RF_Err'], marker='s', label='Assignment 1: Random Forest', color='#e66101', lw=1.8)
-    plt.plot(grouped['hr'], grouped['DNN_Err'], marker='o', label='Assignment 2: Tuned 5-Layer DNN', color='#0571b0', lw=2)
+    plt.plot(grouped['hr'], grouped['DNN_Err'], marker='o', label=f'Assignment 2: {label}', color='#0571b0', lw=2)
 
     plt.title('Mean Absolute Error by Hour of Day (Test Set)', fontsize=12, pad=12)
     plt.xlabel('Hour of Day (0–23)', fontsize=11)
@@ -177,16 +206,22 @@ def main():
     y_scaler = data['y_scaler']
 
     # 2. Load Champion DNN and predict
-    print("\nLoading champion 5-layer DNN weights...")
-    model = load_champion_model()
+    model, config = load_champion_model(input_dim=len(data['feature_cols']))
+    label = dnn_label(config)
+    print(f"\nLoaded champion: trial #{config['trial']} ({config['arch']} {config['hidden_dims']}, "
+          f"lr={config['lr']}, dropout={config['dropout']}, val MAE {config['val_mae']})")
+    predict_start = time.time()
     dnn_preds = predict_unscaled(model, test_loader, y_scaler)
+    predict_seconds = time.time() - predict_start
+    # Same definition as Assignment 1: training time (measured in tune.py) + test prediction time
+    dnn_fit_predict_seconds = config['fit_seconds'] + predict_seconds
 
     # Compute DNN Test Metrics
     dnn_mae = mean_absolute_error(y_test_raw, dnn_preds)
     dnn_rmse = float(np.sqrt(mean_squared_error(y_test_raw, dnn_preds)))
     dnn_r2 = r2_score(y_test_raw, dnn_preds)
 
-    print("\nTuned 5-Layer DNN Test Set Results:")
+    print(f"\n{label} Test Set Results:")
     print(f"  MAE  : {dnn_mae:.2f} bikes")
     print(f"  RMSE : {dnn_rmse:.2f} bikes")
     print(f"  R2   : {dnn_r2:.4f}")
@@ -207,6 +242,24 @@ def main():
     except Exception as e:
         print(f"Note: Could not run A1 Random Forest directly ({e}). Proceeding with DNN metrics.")
 
+    # 3b. Fairness check: the A1 random forest (same settings, untuned) given the SAME
+    # engineered features and the SAME training hours (train + validation) as the DNN.
+    # This separates the gain from the new features from the gain from the network.
+    feature_cols = data['feature_cols']
+    rf_train_df = pd.concat([data['train_df'], data['val_df']], ignore_index=True)
+    rf_start = time.time()
+    rf_same = RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1)
+    rf_same.fit(rf_train_df[feature_cols], rf_train_df['cnt'])
+    rf_same_preds = np.clip(rf_same.predict(test_df[feature_cols]), 0, None)
+    rf_same_seconds = time.time() - rf_start
+    rf_same_row = pd.DataFrame([{
+        'Model': f'Random Forest (A1 settings, same {len(feature_cols)} features)',
+        'MAE': round(mean_absolute_error(y_test_raw, rf_same_preds), 2),
+        'RMSE': round(float(np.sqrt(mean_squared_error(y_test_raw, rf_same_preds))), 2),
+        'R2': round(r2_score(y_test_raw, rf_same_preds), 4),
+        'Fit+predict time (s)': round(rf_same_seconds, 2),
+    }])
+
     # 4. Load A1 holdout results and construct comprehensive comparison table
     a1_csv_path = os.path.join(A1_RESULTS_DIR, 'table2_holdout_results.csv')
     if os.path.exists(a1_csv_path):
@@ -220,13 +273,13 @@ def main():
         ])
 
     dnn_row = pd.DataFrame([{
-        'Model': 'Tuned 5-Layer DNN (Ours)',
+        'Model': f'{label} (Ours)',
         'MAE': round(dnn_mae, 2),
         'RMSE': round(dnn_rmse, 2),
         'R2': round(dnn_r2, 4),
-        'Fit+predict time (s)': 14.8,
+        'Fit+predict time (s)': round(dnn_fit_predict_seconds, 2),
     }])
-    full_comparison = pd.concat([comparison_df, dnn_row], ignore_index=True)
+    full_comparison = pd.concat([comparison_df, rf_same_row, dnn_row], ignore_index=True)
 
     comparison_out_path = os.path.join(RESULTS_DIR, 'model_comparison_dnn.csv')
     full_comparison.to_csv(comparison_out_path, index=False)
@@ -237,7 +290,8 @@ def main():
     print("\nGenerating report figures...")
     plot_learning_curve(
         os.path.join(RESULTS_DIR, 'best_training_history.csv'),
-        os.path.join(RESULTS_DIR, 'fig1_dnn_learning_curve.png')
+        os.path.join(RESULTS_DIR, 'fig1_dnn_learning_curve.png'),
+        label
     )
     print("  Saved fig1_dnn_learning_curve.png")
 
@@ -252,7 +306,8 @@ def main():
         y_test_raw,
         dnn_preds,
         rf_preds,
-        os.path.join(RESULTS_DIR, 'fig3_dnn_forecast_tracking_week.png')
+        os.path.join(RESULTS_DIR, 'fig3_dnn_forecast_tracking_week.png'),
+        label
     )
     print("  Saved fig3_dnn_forecast_tracking_week.png")
 
@@ -261,7 +316,8 @@ def main():
         y_test_raw,
         dnn_preds,
         rf_preds,
-        os.path.join(RESULTS_DIR, 'fig4_dnn_error_by_hour.png')
+        os.path.join(RESULTS_DIR, 'fig4_dnn_error_by_hour.png'),
+        label
     )
     print("  Saved fig4_dnn_error_by_hour.png")
 
