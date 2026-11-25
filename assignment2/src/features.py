@@ -3,15 +3,29 @@ import numpy as np
 import pandas as pd
 
 
-def load_raw_data(data_path="data/hour.csv"):
-    """Load hour.csv and build a continuous timestamp index."""
-    if not os.path.exists(data_path):
-        # Allow running from inside assignment2/ or project root
-        alt_path = os.path.join("..", data_path)
-        if os.path.exists(alt_path):
-            data_path = alt_path
-        else:
-            raise FileNotFoundError(f"Cannot find dataset at {data_path}")
+def find_data_path(filename="hour.csv"):
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    current = script_dir
+    for _ in range(4):
+        candidate = os.path.join(current, "data", filename)
+        if os.path.exists(candidate):
+            return os.path.abspath(candidate)
+        current = os.path.dirname(current)
+
+    for candidate in [
+        os.path.join("data", filename),
+        os.path.join("Assignments", "data", filename),
+        os.path.join("..", "data", filename),
+    ]:
+        if os.path.exists(candidate):
+            return os.path.abspath(candidate)
+
+    raise FileNotFoundError(f"Cannot find dataset file: {filename}")
+
+
+def load_raw_data(data_path=None):
+    if data_path is None or not os.path.exists(data_path):
+        data_path = find_data_path("hour.csv")
 
     df = pd.read_csv(data_path)
     df['timestamp'] = pd.to_datetime(df['dteday']) + pd.to_timedelta(df['hr'], unit='h')
@@ -19,88 +33,50 @@ def load_raw_data(data_path="data/hour.csv"):
     return df
 
 
+LAG_HOURS = {'lag_1h': 1, 'lag_2h': 2, 'lag_3h': 3, 'lag_24h': 24, 'lag_168h': 168}
+
+
 def engineer_datetime_features(df):
-    """
-    Engineer domain-specific temporal features from dates and times:
-    1. Target lag features (immediate, daily, and weekly rhythms)
-    2. Rolling momentum statistics (short-term & daily trends)
-    3. Cyclical trigonometric calendar encodings (hour, day of week, day of year)
-    4. Commuter rush-hour and weekend interaction flags
-    """
-    df = df.copy()
+    df = df.copy().sort_values('timestamp').reset_index(drop=True)
 
-    # Sort strictly by timestamp to preserve temporal causality
-    df = df.sort_values('timestamp').reset_index(drop=True)
+    # Lags and rolling stats are computed on a complete hourly time grid, so that
+    # "24h ago" really means 24 hours earlier even though 165 hours are missing
+    # from the file. A missing hour takes the last observed count (forward fill),
+    # which only uses past information. The first 168 hours have no full history,
+    # so their lag columns stay NaN; prepare_data() drops these warm-up rows from
+    # the training set after the chronological split.
+    hourly = df.set_index('timestamp')['cnt'].asfreq('h').ffill()
+    past = hourly.shift(1)
+    grid = pd.DataFrame(index=hourly.index)
+    for col, hours in LAG_HOURS.items():
+        grid[col] = hourly.shift(hours)
+    grid['rolling_mean_6h'] = past.rolling(window=6, min_periods=6).mean()
+    grid['rolling_std_6h'] = past.rolling(window=6, min_periods=6).std()
+    grid['rolling_mean_24h'] = past.rolling(window=24, min_periods=24).mean()
+    for col in grid.columns:
+        df[col] = df['timestamp'].map(grid[col])
 
-    # ---------------------------------------------------------
-    # 1. Historical Lag Features (Strictly backwards, no leakage)
-    # ---------------------------------------------------------
-    # Immediate momentum: past 1, 2, and 3 hours
-    df['lag_1h'] = df['cnt'].shift(1)
-    df['lag_2h'] = df['cnt'].shift(2)
-    df['lag_3h'] = df['cnt'].shift(3)
-
-    # Daily rhythm: exact same hour yesterday (24 hours prior)
-    df['lag_24h'] = df['cnt'].shift(24)
-
-    # Weekly rhythm: exact same hour last week (168 hours prior, A1 baseline)
-    df['lag_168h'] = df['cnt'].shift(168)
-
-    # ---------------------------------------------------------
-    # 2. Rolling Momentum & Volatility (Shifted by 1 to prevent leakage)
-    # ---------------------------------------------------------
-    # 6-hour short-term rolling average & standard deviation
-    rolling_6 = df['cnt'].shift(1).rolling(window=6, min_periods=1)
-    df['rolling_mean_6h'] = rolling_6.mean()
-    df['rolling_std_6h'] = rolling_6.std().fillna(0)
-
-    # 24-hour daily rolling average
-    rolling_24 = df['cnt'].shift(1).rolling(window=24, min_periods=1)
-    df['rolling_mean_24h'] = rolling_24.mean()
-
-    # ---------------------------------------------------------
-    # 3. Cyclical Calendar Transformations (Continuous sin / cos)
-    # ---------------------------------------------------------
-    # Hour of day (24-hour cycle)
+    # Cyclical date/time encodings
     df['sin_hr'] = np.sin(2 * np.pi * df['hr'] / 24.0)
     df['cos_hr'] = np.cos(2 * np.pi * df['hr'] / 24.0)
 
-    # Day of week (7-day cycle)
     df['sin_weekday'] = np.sin(2 * np.pi * df['weekday'] / 7.0)
     df['cos_weekday'] = np.cos(2 * np.pi * df['weekday'] / 7.0)
 
-    # Month of year (12-month cycle)
     df['sin_mnth'] = np.sin(2 * np.pi * df['mnth'] / 12.0)
     df['cos_mnth'] = np.cos(2 * np.pi * df['mnth'] / 12.0)
 
-    # Day of year (365.25-day seasonal cycle)
-    day_of_year = df['timestamp'].dt.dayofyear
+    day_of_year = df['timestamp'].dt.day_of_year
     df['sin_dayofyear'] = np.sin(2 * np.pi * day_of_year / 365.25)
     df['cos_dayofyear'] = np.cos(2 * np.pi * day_of_year / 365.25)
 
-    # ---------------------------------------------------------
-    # 4. Domain Interaction Flags
-    # ---------------------------------------------------------
-    # Commuter rush-hour indicators on working days (peaks at 8 AM and 5-6 PM)
+    # Rush-hour and weekend flags
     is_morning_rush = (df['hr'].between(7, 9)) & (df['workingday'] == 1)
     is_evening_rush = (df['hr'].between(16, 19)) & (df['workingday'] == 1)
     df['is_rush_hour'] = (is_morning_rush | is_evening_rush).astype(float)
-
-    # Midday leisure curve on weekends
     df['is_weekend_midday'] = ((df['hr'].between(11, 15)) & (df['workingday'] == 0)).astype(float)
 
-    # ---------------------------------------------------------
-    # 5. Clean up Initial Warmup Rows (Lags need up to 168 hours)
-    # ---------------------------------------------------------
-    # Backfill the initial 168 warmup hours using forward propagation so no rows are lost,
-    # or drop initial NaN rows. Backfilling using bfill ensures full continuity.
-    lag_cols = [
-        'lag_1h', 'lag_2h', 'lag_3h', 'lag_24h', 'lag_168h',
-        'rolling_mean_6h', 'rolling_std_6h', 'rolling_mean_24h'
-    ]
-    df[lag_cols] = df[lag_cols].bfill()
-
-    # Drop target leakage columns and non-predictive identifiers from A1
+    # Drop target leakage columns
     drop_cols = ['instant', 'dteday', 'casual', 'registered']
     df = df.drop(columns=[c for c in drop_cols if c in df.columns])
 
@@ -108,7 +84,6 @@ def engineer_datetime_features(df):
 
 
 def get_feature_lists():
-    """Returns categorized feature names for scaling and embedding."""
     raw_weather = ['temp', 'atemp', 'hum', 'windspeed', 'weathersit', 'season', 'yr', 'holiday', 'workingday']
     lags_and_rolling = [
         'lag_1h', 'lag_2h', 'lag_3h', 'lag_24h', 'lag_168h',
@@ -132,14 +107,8 @@ if __name__ == '__main__':
     raw = load_raw_data()
     featured = engineer_datetime_features(raw)
     flists = get_feature_lists()
-    print("=" * 60)
-    print("Assignment 2: Feature Engineering Completed")
-    print("=" * 60)
-    print(f"Original features in Assignment 1 : 12 features")
-    print(f"Engineered features in Assignment 2: {len(flists['all'])} features")
-    print(f"Total dataset shape               : {featured.shape}")
-    print("\nFeature breakdown:")
-    for category, cols in flists.items():
-        if category != 'all':
-            print(f"  - {category} ({len(cols)}): {', '.join(cols[:4])}...")
-    print(f"\nMissing values (NaNs): {featured[flists['all']].isnull().sum().sum()}")
+    print("Features created:", len(flists['all']))
+    print("Dataset shape:", featured.shape)
+    warmup = featured[flists['all']].isnull().any(axis=1)
+    print("Warm-up rows without full lag history (dropped from training):", int(warmup.sum()))
+    print("Null values after warm-up:", int(featured.loc[~warmup, flists['all']].isnull().sum().sum()))
